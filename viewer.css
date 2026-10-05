@@ -82,6 +82,8 @@ body { background: #0c1519; font-family: Arial, sans-serif; }
 .elevation-range-fields input { min-width: 0; width: 100%; box-sizing: border-box; border: 1px solid #aeb9bb; border-radius: 3px; padding: 5px; }
 .elevation-select { display: grid !important; grid-template-columns: 70px 1fr; align-items: center; gap: 8px; font-weight: 700; }
 .elevation-select select { min-width: 0; border: 1px solid #aeb9bb; border-radius: 3px; background: white; padding: 5px; }
+.contour-interval { display: flex !important; align-items: center; gap: 8px; margin: 2px 0 0; font-size: 12px; font-weight: 400; }
+.contour-interval input { width: 76px; flex: none; border: 1px solid #aeb9bb; border-radius: 3px; background: white; padding: 4px 6px; font-size: 12px; }
 .elevation-crs { margin: 7px 0 0; color: #d8e0e2; font-size: 11px; line-height: 1.4; }
 .elevation-status { min-height: 14px; margin: 6px 0 0; color: #9fd4e4; font-size: 11px; }
 #map-coordinates { position: absolute; z-index: 4; left: 12px; bottom: 12px; border-radius: 3px; background: rgba(24, 42, 47, .88); padding: 6px 9px; color: #fff; font: 12px monospace; }

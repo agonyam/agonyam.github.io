@@ -165,22 +165,30 @@
     source: camerasSource,
     style: new ol.style.Style({ image: new ol.style.Circle({ radius: 3, fill: new ol.style.Fill({ color: '#ffd331' }), stroke: new ol.style.Stroke({ color: '#1b2528', width: 1 }) }) })
   });
+  let contourInterval = 1;
+  function isIndexLevel(elevation, interval) {
+    const step = interval * 5;
+    if (!(step > 0)) return false;
+    return Math.abs(elevation / step - Math.round(elevation / step)) < 1e-6;
+  }
   layers.contours = new ol.layer.Vector({
     visible: false,
     source: contoursSource,
     style: function (feature) {
-      const elevation = Math.round(feature.get('elevation'));
-      const major = elevation % 5 === 0;
-      const color = major ? '#c0392b' : '#e8a020';
-      return [
-        new ol.style.Style({
-          stroke: new ol.style.Stroke({ color: 'rgba(255, 255, 255, .9)', width: major ? 5 : 3.5 })
-        }),
-        new ol.style.Style({
-          stroke: new ol.style.Stroke({ color: color, width: major ? 2.5 : 1.5 }),
-          text: new ol.style.Text({ text: String(elevation) + ' m', font: 'bold 11px Arial', fill: new ol.style.Fill({ color: '#111' }), stroke: new ol.style.Stroke({ color: '#fff', width: 3 }) })
-        })
-      ];
+      const major = isIndexLevel(Number(feature.get('elevation')), contourInterval);
+      return [new ol.style.Style({
+        stroke: new ol.style.Stroke({ color: major ? '#a93226' : '#e09a1f', width: major ? 2 : 1 })
+      })];
+    }
+  });
+  const contourLabelSource = new ol.source.Vector();
+  layers.contourLabels = new ol.layer.Vector({
+    visible: false,
+    source: contourLabelSource,
+    style: function (feature) {
+      return [new ol.style.Style({
+        text: new ol.style.Text({ text: String(feature.get('elevation')), font: '11px Arial', fill: new ol.style.Fill({ color: '#3a2a1a' }), stroke: new ol.style.Stroke({ color: 'rgba(255, 255, 255, .85)', width: 2 }) })
+      })];
     }
   });
   const importedLayer = new ol.layer.Vector({
@@ -249,7 +257,7 @@
 
   const map = new ol.Map({
     target: 'map',
-    layers: [layers.satellite, layers.osm, layers.orthophoto, layers['plant-health'], elevationLayer, layers.contours, layers.cameras, importedLayer, sketchLayer, waterZoneLayer, waterPipeLayer, waterSurfaceLayer, waterResultLayer, waterEntryLayer, locationLayer],
+    layers: [layers.satellite, layers.osm, layers.orthophoto, layers['plant-health'], elevationLayer, layers.contours, layers.contourLabels, layers.cameras, importedLayer, sketchLayer, waterZoneLayer, waterPipeLayer, waterSurfaceLayer, waterResultLayer, waterEntryLayer, locationLayer],
     controls: ol.control.defaults().extend([new ol.control.ScaleLine()]),
     view: new ol.View({ center: ol.extent.getCenter(surveyExtent), zoom: 19, minZoom: 14, maxZoom: 23 })
   });
@@ -261,13 +269,143 @@
   }).then(function (geojson) {
     camerasSource.addFeatures(new ol.format.GeoJSON().readFeatures(geojson, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' }));
   }).catch(function (error) { console.error('Camera positions could not be loaded.', error); });
-  fetch(assetUrl('assets/map/contours-wgs84.geojson')).then(function (response) {
-    if (!response.ok) throw new Error('HTTP ' + response.status);
-    return response.json();
-  }).then(function (geojson) {
-    contoursSource.addFeatures(new ol.format.GeoJSON().readFeatures(geojson, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' }));
-    console.info('Contours loaded: ' + contoursSource.getFeatures().length + ' features.');
-  }).catch(function (error) { console.error('Contours could not be loaded.', error); });
+
+  let contourGrid = null;
+  const contourCache = {};
+  const contourCacheOrder = [];
+  let contourRequestToken = 0;
+  let contourWorker = null;
+
+  function contourStatus(message) {
+    const status = document.getElementById('contour-status');
+    if (status) status.textContent = message;
+  }
+
+  function buildContourGrid() {
+    const src = hydrologyPixels.pixels;
+    const sourceWidth = hydrologyPixels.width;
+    const sourceHeight = hydrologyPixels.height;
+    const meta = hydrologyMetadata;
+    const step = Math.max(1, Math.floor(Math.max(sourceWidth, sourceHeight) / 1000));
+    const width = Math.ceil(sourceWidth / step);
+    const height = Math.ceil(sourceHeight / step);
+    const elev = new Float32Array(width * height);
+    const valid = new Uint8Array(width * height);
+    for (let y = 0; y < height; y += 1) {
+      const sourceY = Math.min(sourceHeight - 1, y * step);
+      for (let x = 0; x < width; x += 1) {
+        const sourceX = Math.min(sourceWidth - 1, x * step);
+        const pixel = (sourceY * sourceWidth + sourceX) * 4;
+        const output = y * width + x;
+        if (!src[pixel + 3]) { elev[output] = NaN; continue; }
+        valid[output] = 1;
+        elev[output] = meta.offset + (src[pixel] * 256 + src[pixel + 1]) * meta.scale;
+      }
+    }
+    return { width: width, height: height, elev: elev, valid: valid };
+  }
+
+  function showContourLevels(levels, interval) {
+    contoursSource.clear();
+    contourLabelSource.clear();
+    const lineFeatures = [];
+    const labelFeatures = [];
+    const hasIndex = levels.some(function (level) { return isIndexLevel(level.e, interval); });
+    levels.forEach(function (level, levelPosition) {
+      const flat = new Float32Array(level.coords);
+      const lines = [];
+      let totalLength = 0;
+      for (let s = 0; s < flat.length; s += 4) {
+        const dx = flat[s + 2] - flat[s];
+        const dy = flat[s + 3] - flat[s + 1];
+        totalLength += Math.sqrt(dx * dx + dy * dy);
+        lines.push([[flat[s], flat[s + 1]], [flat[s + 2], flat[s + 3]]]);
+      }
+      const lineFeature = new ol.Feature(new ol.geom.MultiLineString(lines));
+      lineFeature.set('elevation', level.e);
+      lineFeatures.push(lineFeature);
+      const labeled = hasIndex ? isIndexLevel(level.e, interval) : levelPosition % 3 === 0;
+      if (labeled && totalLength > 0) {
+        const step = Math.max(40, totalLength / 8);
+        let travelled = step / 2;
+        let acc = 0;
+        for (let s = 0; s < flat.length && labelFeatures.length < 500; s += 4) {
+          const dx = flat[s + 2] - flat[s];
+          const dy = flat[s + 3] - flat[s + 1];
+          acc += Math.sqrt(dx * dx + dy * dy);
+          if (acc >= travelled) {
+            const label = new ol.Feature(new ol.geom.Point([(flat[s] + flat[s + 2]) / 2, (flat[s + 1] + flat[s + 3]) / 2]));
+            label.set('elevation', level.e);
+            labelFeatures.push(label);
+            travelled += step;
+          }
+        }
+      }
+    });
+    contoursSource.addFeatures(lineFeatures);
+    contourLabelSource.addFeatures(labelFeatures);
+    return { lines: lineFeatures, labels: labelFeatures };
+  }
+
+  function showCachedContours(key, interval) {
+    contoursSource.clear();
+    contourLabelSource.clear();
+    contoursSource.addFeatures(contourCache[key].lines);
+    contourLabelSource.addFeatures(contourCache[key].labels);
+    contourStatus(contourCache[key].lines.length + ' levels · ' + interval + ' m interval');
+  }
+
+  function requestContours() {
+    if (!layers.contours.getVisible()) return;
+    const interval = contourInterval;
+    const key = String(interval);
+    if (contourCache[key]) {
+      showCachedContours(key, interval);
+      return;
+    }
+    const token = ++contourRequestToken;
+    contourStatus('Generating ' + interval + ' m contours…');
+    ensureDtm().then(function (ready) {
+      if (token !== contourRequestToken) return;
+      if (!ready) throw new Error('Terrain data could not be loaded.');
+      if (!contourGrid) contourGrid = buildContourGrid();
+      if (contourWorker) contourWorker.terminate();
+      contourWorker = new Worker(sharedBase + '/contour-worker.js?v=20261005-live2');
+      contourWorker.onmessage = function (event) {
+        if (token !== contourRequestToken) return;
+        contourWorker.terminate();
+        contourWorker = null;
+        if (event.data.error || !event.data.levels) {
+          contourStatus('Contour generation failed.');
+          console.error('Contours could not be generated.', event.data.error);
+          return;
+        }
+        const features = showContourLevels(event.data.levels, interval);
+        contourCache[key] = features;
+        contourCacheOrder.push(key);
+        while (contourCacheOrder.length > 3) delete contourCache[contourCacheOrder.shift()];
+        contourStatus(features.lines.length + ' levels · ' + interval + ' m interval');
+      };
+      contourWorker.onerror = function () {
+        if (token !== contourRequestToken) return;
+        contourWorker = null;
+        contourStatus('Contour generation failed.');
+      };
+      const payload = {
+        elev: contourGrid.elev.slice().buffer,
+        valid: contourGrid.valid.slice().buffer,
+        width: contourGrid.width,
+        height: contourGrid.height,
+        extent: surveyExtent,
+        interval: interval
+      };
+      contourWorker.postMessage(payload, [payload.elev, payload.valid]);
+    }).catch(function (error) {
+      if (token !== contourRequestToken) return;
+      contourStatus('Contours unavailable: ' + error.message);
+      console.error('Contours could not be generated.', error);
+    });
+  }
 
   const palettes = {
     viridis: [[0, 68, 1, 84], [.25, 59, 82, 139], [.5, 33, 145, 140], [.75, 94, 201, 98], [1, 253, 231, 37]],
@@ -1897,6 +2035,41 @@
       refreshQuickButtons();
     });
   });
+  const contoursCheckbox = document.querySelector('[data-map-layer="contours"]');
+  if (contoursCheckbox && contoursCheckbox.parentElement && contoursCheckbox.parentElement.after) {
+    if (contoursCheckbox.nextSibling && contoursCheckbox.nextSibling.nodeType === 3) contoursCheckbox.nextSibling.textContent = ' Contours';
+    const intervalLabel = document.createElement('label');
+    intervalLabel.className = 'contour-interval';
+    intervalLabel.textContent = 'Interval ';
+    const intervalInput = document.createElement('input');
+    intervalInput.id = 'contour-interval';
+    intervalInput.type = 'number';
+    intervalInput.min = '0.1';
+    intervalInput.max = '10';
+    intervalInput.step = '0.1';
+    intervalInput.value = '1';
+    intervalInput.setAttribute('aria-label', 'Contour interval in meters');
+    intervalLabel.appendChild(intervalInput);
+    contoursCheckbox.parentElement.after(intervalLabel);
+    const contourStatusLine = document.createElement('div');
+    contourStatusLine.id = 'contour-status';
+    contourStatusLine.className = 'elevation-status';
+    intervalLabel.after(contourStatusLine);
+    let contourDebounce = null;
+    intervalInput.addEventListener('change', function () {
+      let value = Number(intervalInput.value);
+      if (!Number.isFinite(value)) value = 1;
+      value = Math.max(0.1, Math.min(10, value));
+      intervalInput.value = value;
+      contourInterval = value;
+      window.clearTimeout(contourDebounce);
+      contourDebounce = window.setTimeout(requestContours, 400);
+    });
+    contoursCheckbox.addEventListener('change', function () {
+      layers.contourLabels.setVisible(contoursCheckbox.checked);
+      if (contoursCheckbox.checked) requestContours();
+    });
+  }
   document.querySelectorAll('[data-map-quick]').forEach(function (button) {
     button.addEventListener('click', function () {
       ['orthophoto', 'plant-health', 'dsm', 'dtm'].forEach(function (name) {
@@ -2032,7 +2205,7 @@
     history.replaceState(null, '', location.pathname + '?view=2d');
     setTimeout(function () {
       map.updateSize();
-      map.getView().fit(surveyExtent, map.getSize(), { padding: mapFitPadding(), maxZoom: 21 });
+  map.getView().fit(surveyExtent, map.getSize(), { padding: mapFitPadding(), maxZoom: 21 });
     }, 0);
   }
   function show3d() {

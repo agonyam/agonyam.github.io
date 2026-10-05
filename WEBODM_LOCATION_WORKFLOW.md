@@ -41,7 +41,6 @@ Do not create or retain `<slug>/assets/` in this repository. The directory below
   map/
     orthophoto/{z}/{x}/{y}.png
     plant-health/{z}/{x}/{y}.png    optional
-    contours-wgs84.geojson
     elevation.json
     dtm-elevation.png
     dtm-hillshade-normal.png
@@ -51,7 +50,7 @@ Do not create or retain `<slug>/assets/` in this repository. The directory below
     dsm-hillshade-extruded.png
 ```
 
-The browser-facing files must use WGS 84 extents. Preserve the original survey CRS in metadata; metric calculations use a UTM zone derived automatically from the midpoint of `extent4326`. Pass `utmDefinition` in `SURVEY_CONFIG` only when a location needs an explicit override.
+Contours are generated live in the browser from the DTM at any 0.1–10 m interval, so no contour file is uploaded; a working DTM is required for the contour control. The browser-facing files must use WGS 84 extents. Preserve the original survey CRS in metadata; metric calculations use a UTM zone derived automatically from the midpoint of `extent4326`. Pass `utmDefinition` in `SURVEY_CONFIG` only when a location needs an explicit override.
 
 Do not publish raw source photographs, raw GeoTIFFs, the original full LAZ, reports, caches, or WebODM credentials. The EPT hierarchy and tiled/derived map products are the deployable outputs.
 

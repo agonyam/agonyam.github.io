@@ -4,7 +4,7 @@ Static GitHub Pages reconstructions of the WebODM 2D and 3D viewers. They requir
 
 The 3D view uses the original WebODM Potree interface, the complete 39.9-million-point EPT cloud, the Hires textured model, camera positions, measurements, clipping, navigation, projection, filters, and scene controls.
 
-The 2D view includes orthophoto, VARI plant health, DTM, DSM, hillshade, 1 m contours, camera positions, opacity, distance/area measurement, annotations, temporary GeoJSON overlays, satellite context, GPS, fullscreen, and sharing.
+The 2D view includes orthophoto, VARI plant health, DTM, DSM, hillshade, live-generated contours at any 0.1–10 m interval, camera positions, opacity, distance/area measurement, annotations, temporary GeoJSON overlays, satellite context, GPS, fullscreen, and sharing.
 
 Visitors can optionally use **Location** to place their phone GPS position on the georeferenced survey. Location data stays in the browser and is not uploaded or stored.
 
