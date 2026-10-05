@@ -169,10 +169,18 @@
     visible: false,
     source: contoursSource,
     style: function (feature) {
-      return new ol.style.Style({
-        stroke: new ol.style.Stroke({ color: '#21292b', width: Math.round(feature.get('elevation')) % 5 === 0 ? 2 : 1 }),
-        text: new ol.style.Text({ text: String(Math.round(feature.get('elevation'))) + ' m', font: '10px Arial', fill: new ol.style.Fill({ color: '#111' }), stroke: new ol.style.Stroke({ color: '#fff', width: 3 }) })
-      });
+      const elevation = Math.round(feature.get('elevation'));
+      const major = elevation % 5 === 0;
+      const color = major ? '#c0392b' : '#e8a020';
+      return [
+        new ol.style.Style({
+          stroke: new ol.style.Stroke({ color: 'rgba(255, 255, 255, .9)', width: major ? 5 : 3.5 })
+        }),
+        new ol.style.Style({
+          stroke: new ol.style.Stroke({ color: color, width: major ? 2.5 : 1.5 }),
+          text: new ol.style.Text({ text: String(elevation) + ' m', font: 'bold 11px Arial', fill: new ol.style.Fill({ color: '#111' }), stroke: new ol.style.Stroke({ color: '#fff', width: 3 }) })
+        })
+      ];
     }
   });
   const importedLayer = new ol.layer.Vector({
@@ -247,12 +255,19 @@
   });
   map.getView().fit(surveyExtent, map.getSize(), { padding: mapFitPadding(), maxZoom: 21 });
 
-  fetch(assetUrl('assets/shots.geojson')).then(function (response) { return response.json(); }).then(function (geojson) {
-    camerasSource.addFeatures(new ol.format.GeoJSON().readFeatures(geojson, { featureProjection: 'EPSG:3857' }));
-  });
-  fetch(assetUrl('assets/map/contours-wgs84.geojson')).then(function (response) { return response.json(); }).then(function (geojson) {
-    contoursSource.addFeatures(new ol.format.GeoJSON().readFeatures(geojson, { featureProjection: 'EPSG:3857' }));
-  });
+  fetch(assetUrl('assets/shots.geojson')).then(function (response) {
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.json();
+  }).then(function (geojson) {
+    camerasSource.addFeatures(new ol.format.GeoJSON().readFeatures(geojson, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' }));
+  }).catch(function (error) { console.error('Camera positions could not be loaded.', error); });
+  fetch(assetUrl('assets/map/contours-wgs84.geojson')).then(function (response) {
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.json();
+  }).then(function (geojson) {
+    contoursSource.addFeatures(new ol.format.GeoJSON().readFeatures(geojson, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' }));
+    console.info('Contours loaded: ' + contoursSource.getFeatures().length + ' features.');
+  }).catch(function (error) { console.error('Contours could not be loaded.', error); });
 
   const palettes = {
     viridis: [[0, 68, 1, 84], [.25, 59, 82, 139], [.5, 33, 145, 140], [.75, 94, 201, 98], [1, 253, 231, 37]],
