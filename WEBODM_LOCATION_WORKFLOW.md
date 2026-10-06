@@ -171,7 +171,7 @@ R2 assets must be working before GitHub Pages points to them.
 3. Never stage `.env.r2.local`, credentials, caches, raw WebODM exports, or unrelated user changes.
 4. Check for files near or above GitHub's 100 MB limit. Heavy survey assets belong in R2.
 5. Commit and push `main` only when the user asks to publish/push.
-6. Verify `https://agonyam.github.io/map/<slug>/` after Pages deploys.
+6. Verify `https://agonyam.github.io/<slug>/` after Pages deploys.
 
 If publication fails, check in this order:
 

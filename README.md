@@ -12,11 +12,11 @@ Visitors can optionally use **Location** to place their phone GPS position on th
 
 Publish from the `main` branch and repository root. The public survey selector is:
 
-https://agonyam.github.io/map/
+https://agonyam.github.io/
 
 The Lokman viewer is available at:
 
-https://agonyam.github.io/map/lokman/
+https://agonyam.github.io/lokman/
 
 ## Maintenance
 
