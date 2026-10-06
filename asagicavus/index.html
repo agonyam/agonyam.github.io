@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="theme-color" content="#172a2f">
+  <title>Aşağıçavuş · WebODM 3D Viewer</title>
+  <link rel="stylesheet" href="../vendor/potree/build/potree/potree.css">
+  <link rel="stylesheet" href="../vendor/potree/libs/jquery-ui/jquery-ui.min.css">
+  <link rel="stylesheet" href="../vendor/potree/libs/openlayers3/ol.css">
+  <link rel="stylesheet" href="../vendor/potree/libs/spectrum/spectrum.css">
+  <link rel="stylesheet" href="../vendor/potree/libs/jstree/themes/mixed/style.css">
+  <link rel="stylesheet" href="../viewer.css?v=20261005-live2">
+</head>
+<body>
+  <main class="model-view">
+    <div class="potree_container">
+      <div id="potree_render_area"></div>
+      <div id="potree_sidebar_container"></div>
+    </div>
+
+    <section id="map-view" aria-label="2D survey map" hidden>
+      <div id="map"></div>
+      <nav class="map-quick-layers" aria-label="Survey layers">
+        <button type="button" data-map-quick="orthophoto">▧ Orthophoto</button>
+        <button type="button" data-map-quick="plant-health">⌁ Plant Health</button>
+        <button type="button" data-map-quick="dsm">▥ Surface Model</button>
+        <button type="button" data-map-quick="dtm">▤ Terrain Model</button>
+      </nav>
+      <button id="map-tools-toggle" class="map-tools-toggle" type="button" aria-controls="map-tools" aria-expanded="false">☰ Tools</button>
+      <aside id="map-tools" class="map-sidebar">
+        <h2>Layers</h2>
+        <label><input type="checkbox" data-map-layer="cameras"> Cameras</label>
+        <label><input type="checkbox" data-map-layer="plant-health"> Plant Health (VARI)</label>
+        <label><input type="checkbox" data-map-layer="orthophoto" checked> Orthophoto</label>
+        <label><input type="checkbox" data-map-layer="dtm"> Terrain model (DTM)</label>
+        <label><input type="checkbox" data-map-layer="dsm"> Surface model (DSM)</label>
+        <label><input type="checkbox" data-map-layer="contours"> 1 m contours</label>
+        <label><input type="checkbox" data-map-layer="satellite" checked> Satellite base map</label>
+        <label><input type="checkbox" data-map-layer="osm"> Street map</label>
+        <section id="elevation-controls" class="elevation-controls" hidden>
+          <h2 id="elevation-title">Terrain Model</h2>
+          <div class="elevation-histogram-wrap">
+            <canvas id="elevation-histogram" width="272" height="104" aria-label="Elevation histogram with adjustable display range"></canvas>
+            <div class="elevation-bounds"><span id="elevation-global-min">—</span><span id="elevation-global-max">—</span></div>
+          </div>
+          <div class="elevation-range-fields">
+            <label>Min <input id="elevation-min" type="number" step="0.001"></label>
+            <label>Max <input id="elevation-max" type="number" step="0.001"></label>
+          </div>
+          <label class="elevation-select">Color
+            <select id="elevation-color">
+              <option value="viridis">Viridis</option>
+              <option value="jet">Jet</option>
+              <option value="terrain">Terrain</option>
+              <option value="earth">Earth</option>
+              <option value="pastel">Pastel</option>
+            </select>
+          </label>
+          <label class="elevation-select">Shading
+            <select id="elevation-shading">
+              <option value="normal">Normal</option>
+              <option value="extruded">Extruded</option>
+              <option value="none">None</option>
+            </select>
+          </label>
+          <p class="elevation-crs"><strong>CRS</strong> WGS 84 / UTM zone 35N (EPSG:32635)</p>
+          <p id="elevation-status" class="elevation-status" aria-live="polite"></p>
+        </section>
+        <h2>Layer opacity</h2>
+        <input id="map-opacity" aria-label="Survey layer opacity" type="range" min="0" max="1" step="0.05" value="1">
+        <h2>Measurement</h2>
+        <div class="map-tool-grid">
+          <button type="button" data-map-tool="distance" title="Measure distance">↗ Distance</button>
+          <button type="button" data-map-tool="area" title="Measure area">▱ Area</button>
+          <button type="button" data-map-tool="marker" title="Add annotation">● Marker</button>
+          <button type="button" data-map-tool="clear" title="Clear measurements">× Clear</button>
+        </div>
+        <section class="irrigation-controls" aria-labelledby="irrigation-title">
+          <h2 id="irrigation-title">Water planning <span>DTM simulation</span></h2>
+          <p class="irrigation-note">Estimate wetting, downhill runoff and pooling before defining irrigation zones. Planning preview only.</p>
+          <div class="irrigation-fields">
+            <label>Scenario <select id="water-mode"><option value="irrigation">Open outlet / flood</option><option value="drip">Drip irrigation</option><option value="rain">Rainfall event</option></select></label>
+            <label>Soil <select id="water-soil">
+              <option value="sandy">Sandy · fast absorption</option>
+              <option value="loam" selected>Loam · medium absorption</option>
+              <option value="clay">Clay · slow absorption</option>
+              <option value="saturated">Saturated · high runoff</option>
+            </select></label>
+            <div id="water-irrigation-fields">
+              <label>Flow <span class="flow-input"><input id="water-flow" type="number" min="0.5" max="250000" step="0.5" value="8"><select id="water-flow-unit" aria-label="Flow unit"><option value="minute">L/min</option><option value="hour">L/h</option></select></span></label>
+              <label>Flow allocation <select id="water-flow-basis"><option value="per-entry">Per entry</option><option value="total">Total shared</option></select></label>
+              <label>Duration <span><input id="water-duration" type="number" min="1" max="720" step="1" value="20"> min</span></label>
+              <label>Test pipe ID <span><input id="water-diameter" type="number" min="8" max="200" step="1" value="25"> mm</span></label>
+              <label>Outlet pressure <span><input id="water-pressure" type="number" min="0.1" max="10" step="0.1" value="2.5"> bar</span></label>
+              <label>Source lift <span><input id="water-source-lift" type="number" min="0" max="300" step="0.5" value="0"> m</span></label>
+              <label>Watering target <span><input id="water-depth" type="number" min="0.1" max="50" step="0.1" value="5"> mm/day</span></label>
+              <label>Operating time <span><input id="water-hours" type="number" min="0.25" max="24" step="0.25" value="6"> h/day</span></label>
+              <label>Pump efficiency <span><input id="pump-efficiency" type="number" min="20" max="95" step="1" value="65"> %</span></label>
+              <label>Peak sun <span><input id="solar-hours" type="number" min="1" max="12" step="0.1" value="5"> h/day</span></label>
+            </div>
+            <div id="water-rain-fields" hidden>
+              <label>Rain intensity <span><input id="rain-intensity" type="number" min="0.1" max="300" step="0.5" value="25"> mm/h</span></label>
+              <label>Duration <span><input id="rain-duration" type="number" min="1" max="1440" step="1" value="60"> min</span></label>
+            </div>
+            <div id="water-drip-fields" hidden>
+              <label>Mainline ID <span><input id="drip-main-diameter" type="number" min="20" max="250" step="1" value="40"> mm</span></label>
+              <label>Submain ID <span><input id="drip-submain-diameter" type="number" min="16" max="200" step="1" value="32"> mm</span></label>
+              <label>Dripline ID <span><input id="drip-lateral-diameter" type="number" min="12" max="32" step="1" value="16"> mm</span></label>
+              <label>Emitter spacing <span><input id="drip-emitter-spacing" type="number" min="0.1" max="20" step="0.1" value="1"> m</span></label>
+              <label>Emitter flow / outlet <span><input id="drip-emitter-flow" type="number" min="0.1" max="20" step="0.1" value="2"> L/h</span></label>
+              <label>Emitter type <select id="drip-emitter-type"><option value="pc" selected>Pressure compensating</option><option value="non-pc">Non-compensating</option></select></label>
+              <label>Source pressure <span><input id="drip-pressure" type="number" min="0.2" max="6" step="0.1" value="1.2"> bar</span></label>
+              <label>Source capacity <span><input id="drip-capacity" type="number" min="1" max="250000" step="1" value="2000"> L/h</span></label>
+              <label>Source lift <span><input id="drip-source-lift" type="number" min="0" max="300" step="0.5" value="0"> m</span></label>
+              <label>Pump efficiency <span><input id="drip-pump-efficiency" type="number" min="20" max="95" step="1" value="65"> %</span></label>
+              <label>Peak sun <span><input id="drip-solar-hours" type="number" min="1" max="12" step="0.1" value="5"> h/day</span></label>
+              <label>Duration <span><input id="drip-duration" type="number" min="1" max="1440" step="1" value="120"> min</span></label>
+              <label>Wetting radius <span><input id="drip-wetting-radius" type="number" min="0.2" max="5" step="0.1" value="0.7"> m</span></label>
+              <label>Drawing pipe type <select id="drip-pipe-role"><option value="mainline">Mainline</option><option value="submain">Submain</option><option value="dripline" selected>Dripline / lateral</option></select></label>
+            </div>
+          </div>
+          <div class="map-tool-grid irrigation-actions">
+            <button id="water-place" type="button">⌖ Add entry</button>
+            <button id="water-pipe" type="button">⌁ Draw pipe</button>
+            <button id="water-erase" type="button">⌫ Erase pipe</button>
+            <button id="water-zone" type="button">▱ Draw zone</button>
+            <button id="water-run" type="button">▶ Simulate</button>
+            <button id="water-clear" type="button">× Clear</button>
+          </div>
+          <div class="map-tool-grid water-plan-actions">
+            <button id="water-save" type="button">↓ Save plan</button>
+            <button id="water-load" type="button">↑ Load plan</button>
+            <input id="water-plan-file" type="file" accept=".json,application/json" hidden>
+          </div>
+          <label class="water-opacity-control" for="water-opacity"><span>Simulation opacity</span><input id="water-opacity" type="range" min="0.1" max="1" step="0.05" value="0.7" aria-label="Water simulation opacity"><output id="water-opacity-value" for="water-opacity">70%</output></label>
+          <dl id="water-results" class="water-results" hidden>
+            <div><dt>Applied</dt><dd id="water-applied">—</dd></div>
+            <div><dt>Estimated infiltration</dt><dd id="water-infiltration">—</dd></div>
+            <div><dt>Surface water + outflow</dt><dd id="water-runoff">—</dd></div>
+            <div><dt>Flow path / drop</dt><dd id="water-path">—</dd></div>
+            <div id="water-pipe-result-row"><dt>Pipe plan</dt><dd id="water-pipe-result">—</dd></div>
+            <div id="water-demand-row"><dt>Zone demand</dt><dd id="water-demand">—</dd></div>
+            <div id="water-pump-row"><dt>Pump estimate</dt><dd id="water-pump">—</dd></div>
+            <div id="water-solar-row"><dt>Solar estimate</dt><dd id="water-solar">—</dd></div>
+            <div id="water-drip-summary-row" hidden><dt>Drip network</dt><dd id="water-drip-summary">—</dd></div>
+            <div id="water-uniformity-row" hidden><dt>Low-quarter DU</dt><dd id="water-uniformity">—</dd></div>
+          </dl>
+          <p id="water-status" class="water-status" aria-live="polite">Add entry points and pipe routes, or choose rainfall.</p>
+        </section>
+        <h2>Overlays</h2>
+        <label class="map-upload">＋ Temporary GeoJSON<input id="map-geojson" type="file" accept=".json,.geojson,application/geo+json,application/json"></label>
+        <h2>Navigation</h2>
+        <div class="map-tool-grid">
+          <button id="map-fit" type="button">□ Fit</button>
+          <button id="map-location" type="button">⌖ Location</button>
+          <button id="map-fullscreen" type="button">⛶ Fullscreen</button>
+        </div>
+      </aside>
+      <div id="water-legend" class="water-legend" hidden><strong>Water simulation</strong><span id="water-infiltration-key" hidden><i class="water-key-infiltration"></i>Wetted soil</span><span id="water-wetting-key" hidden><i class="water-key-wetting"></i>Emitter wetting</span><span><i class="water-key-nodata"></i>No terrain data</span><span><i class="water-key-flow"></i>Runoff flow</span><span><i class="water-key-pool"></i>Water buildup</span><span id="water-low-pressure-key" hidden><i class="water-key-low-pressure"></i>Low pressure</span><span id="water-low-flow-key" hidden><i class="water-key-low-flow"></i>Below target flow</span><span><i class="water-key-entry"></i>Water entry</span></div>
+      <div id="water-timeline" class="water-timeline" hidden>
+        <button id="water-play" type="button" aria-label="Play water simulation">▶</button>
+        <input id="water-time" type="range" min="0" max="100" step="1" value="100" aria-label="Water simulation timeline">
+        <output id="water-time-label" for="water-time">End</output>
+      </div>
+      <div id="map-coordinates" aria-live="polite"></div>
+      <div class="map-bottom-actions">
+        <button id="map-share" type="button">⌯ Share</button>
+        <button id="mode-3d" class="mode-switch" type="button">🌐 3D</button>
+      </div>
+    </section>
+
+    <div class="survey-title" aria-label="Survey title">
+      <span>Aşağıçavuş</span>
+      <small>6 October 2026 · WGS 84 / UTM 35N</small>
+    </div>
+
+    <div id="loading" class="standby">
+      <div class="cover"></div>
+      <div class="content"><span class="spinner"></span><p id="loading-text">Loading point cloud…</p></div>
+    </div>
+
+    <div class="model-action-buttons">
+      <select id="unit-selector" title="Units">
+        <option value="metric">Metric</option>
+        <option value="imperial">Imperial</option>
+        <option value="imperialUS">Imperial (US)</option>
+      </select>
+      <button id="snapshot" type="button" title="Take snapshot">▣</button>
+      <button id="share" type="button" title="Share">⌯ <span>Share</span></button>
+      <button id="show-location" type="button" title="Show my location">⌖ <span>Location</span></button>
+      <button id="mode-2d" type="button" title="Open 2D map">▰ <span>2D</span></button>
+    </div>
+    <div id="toast" role="status" aria-live="polite"></div>
+  </main>
+
+  <script src="../vendor/jquery-1.11.2.min.js"></script>
+  <script src="../vendor/potree/libs/spectrum/spectrum.js"></script>
+  <script src="../vendor/potree/libs/jquery-ui/jquery-ui.min.js"></script>
+  <script src="../vendor/potree/libs/three.js/build/three.min.js"></script>
+  <script src="../vendor/potree/libs/three.js/extra/lines.js"></script>
+  <script src="../vendor/potree/libs/other/BinaryHeap.js"></script>
+  <script src="../vendor/potree/libs/tween/tween.min.js"></script>
+  <script src="../vendor/potree/libs/d3/d3.js"></script>
+  <script src="../vendor/potree/libs/proj4/proj4.js"></script>
+  <script src="../vendor/potree/libs/openlayers3/ol.js"></script>
+  <script src="../vendor/potree/libs/i18next/i18next.js"></script>
+  <script src="../vendor/potree/libs/jstree/jstree.js"></script>
+  <script src="../vendor/potree/build/potree/potree.js"></script>
+  <script src="../vendor/potree/libs/plasio/js/laslaz.js"></script>
+  <script src="../vendor/GLTFLoader.js"></script>
+  <script src="../vendor/DRACOLoader.js"></script>
+  <script>
+    window.SURVEY_CONFIG = {
+      slug: 'asagicavus',
+      sharedBase: '..',
+      assetBase: 'https://map-assets-proxy.akyoltarik.workers.dev/asagicavus',
+      extent4326: [27.11482465155582, 39.80953930162609, 27.118980220612606, 39.81152496287322],
+      elevationRanges: { dtm: { min: 254.421, max: 284.666 }, dsm: { min: 249.207, max: 301.309 } },
+      areaSquareMeters: 65547.01,
+      waterPlanStorageKey: 'asagicavus-water-plan-v1'
+    };
+  </script>
+  <script src="../viewer.js"></script>
+  <script src="../map.js?v=20261005-live3"></script>
+</body>
+</html>
