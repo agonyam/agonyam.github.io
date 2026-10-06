@@ -187,7 +187,7 @@
     source: contourLabelSource,
     style: function (feature) {
       return [new ol.style.Style({
-        text: new ol.style.Text({ text: String(feature.get('elevation')), font: '11px Arial', fill: new ol.style.Fill({ color: '#3a2a1a' }), stroke: new ol.style.Stroke({ color: 'rgba(255, 255, 255, .85)', width: 2 }) })
+        text: new ol.style.Text({ text: String(feature.get('elevation')), font: 'bold 13px Arial', fill: new ol.style.Fill({ color: '#141414' }), stroke: new ol.style.Stroke({ color: 'rgba(255, 255, 255, .95)', width: 3 }) })
       })];
     }
   });
