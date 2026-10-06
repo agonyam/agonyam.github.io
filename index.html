@@ -22,6 +22,12 @@
     a:hover span, a:focus-visible span { color: #d2f47b; transform: translateX(3px); }
     a:focus-visible { outline: 1px solid #d2f47b; outline-offset: 5px; }
     footer { margin-top: 18px; color: #646b66; font-size: .72rem; }
+    .air { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 14px 2px; border-bottom: 1px solid #292d2a; font-size: .8rem; color: #b9c0bb; }
+    .air[hidden] { display: none; }
+    .air-label { color: #929a94; font-size: .68rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
+    .air-dot { width: 8px; height: 8px; border-radius: 50%; background: #888; align-self: center; flex: none; }
+    .air small { color: #646b66; font-size: .7rem; }
+    .air a { display: inline; min-height: 0; padding: 0; border: 0; color: #d2f47b; }
     @media (max-width: 480px) {
       main { width: calc(100% - 32px); padding-top: 48px; }
       header { display: block; }
@@ -36,6 +42,12 @@
       <div class="brand">Agonyam</div>
       <h1>Survey maps</h1>
     </header>
+    <section id="air" class="air" hidden aria-label="Live air quality at Akçakoyun">
+      <span class="air-label">Akçakoyun air</span>
+      <span class="air-dot" id="air-dot" aria-hidden="true"></span>
+      <span id="air-values"></span>
+      <small><span id="air-meta"></span> · via <a href="https://www.airgradient.com/map/">AirGradient</a></small>
+    </section>
     <section class="places" aria-label="Survey locations">
       <a href="./akcakoyun/"><div><strong>Akçakoyun</strong><small>9,262 m² · 284 images</small></div><span aria-hidden="true">→</span></a>
       <a href="./hidirlar/"><div><strong>Hıdırlar</strong><small>7,710 m² · 118 images</small></div><span aria-hidden="true">→</span></a>
@@ -44,5 +56,43 @@
     </section>
     <footer>2D · 3D · Terrain · Water planning</footer>
   </main>
+  <script>
+  (function () {
+    var section = document.getElementById('air');
+    function ago(iso) {
+      var t = Date.parse(iso);
+      if (isNaN(t)) return '';
+      var m = Math.max(0, Math.round((Date.now() - t) / 60000));
+      if (m < 1) return 'just now';
+      if (m === 1) return '1 min ago';
+      if (m < 60) return m + ' min ago';
+      return Math.round(m / 60) + ' h ago';
+    }
+    function band(pm) {
+      if (pm === null || pm === undefined) return '#888';
+      if (pm < 12) return '#7bd88f';
+      if (pm < 35.5) return '#e8d44d';
+      if (pm < 55.5) return '#ef9b4d';
+      return '#e05d5d';
+    }
+    fetch('./airquality.json', { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (d) {
+      if (d.pm02 === null && d.rco2 === null) return;
+      document.getElementById('air-dot').style.background = band(d.pm02);
+      var parts = [];
+      if (d.pm02 !== null && d.pm02 !== undefined) parts.push('PM2.5 ' + d.pm02 + ' µg/m³');
+      if (d.rco2 !== null && d.rco2 !== undefined) parts.push('CO₂ ' + d.rco2 + ' ppm');
+      if (d.atmp !== null && d.atmp !== undefined) parts.push(d.atmp + ' °C');
+      if (d.rhum !== null && d.rhum !== undefined) parts.push(d.rhum + '% RH');
+      if (d.tvoc !== null && d.tvoc !== undefined) parts.push('TVOC ' + d.tvoc + ' ppb');
+      document.getElementById('air-values').textContent = parts.join(' · ');
+      var when = ago(d.timestamp || d.fetchedAt);
+      document.getElementById('air-meta').textContent = when ? 'updated ' + when : '';
+      section.hidden = false;
+    }).catch(function () { /* stay hidden when the snapshot is unavailable */ });
+  })();
+  </script>
 </body>
 </html>

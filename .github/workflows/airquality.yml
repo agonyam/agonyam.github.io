@@ -1,0 +1,71 @@
+name: Air quality snapshot
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: airquality
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch current measures
+        id: fetch
+        run: |
+          curl -sS --fail --max-time 30 \
+            "https://api.airgradient.com/public/api/v1/world/locations/162192/measures/current" \
+            -o /tmp/now.json
+          python3 - <<'EOF'
+          import json, datetime, os
+          with open('/tmp/now.json') as f:
+              src = json.load(f)
+
+          def num(v):
+              return None if v is None else round(float(v), 1)
+
+          def integer(v):
+              return None if v is None else int(v)
+
+          row = {
+              "locationId": 162192,
+              "locationName": src.get("publicLocationName") or src.get("locationName"),
+              "pm02": num(src.get("pm02")),
+              "rco2": integer(src.get("rco2")),
+              "atmp": num(src.get("atmp")),
+              "rhum": integer(src.get("rhum")),
+              "tvoc": num(src.get("tvoc")),
+              "timestamp": src.get("timestamp"),
+          }
+          try:
+              with open("airquality.json") as f:
+                  prev = json.load(f)
+          except (FileNotFoundError, json.JSONDecodeError):
+              prev = None
+          prev_cmp = None
+          if isinstance(prev, dict):
+              prev_cmp = {k: v for k, v in prev.items() if k != "fetchedAt"}
+          changed = prev_cmp != row
+          if changed:
+              row["fetchedAt"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+              with open("airquality.json", "w") as f:
+                  json.dump(row, f, indent=2, ensure_ascii=False)
+                  f.write("\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("changed=%s\n" % ("yes" if changed else "no"))
+          print("changed=" + ("yes" if changed else "no"))
+          EOF
+      - name: Commit snapshot
+        if: steps.fetch.outputs.changed == 'yes'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add airquality.json
+          git commit -m "Update air quality snapshot" && git push
