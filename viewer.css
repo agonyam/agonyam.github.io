@@ -10,6 +10,7 @@ body { background: #0c1519; font-family: Arial, sans-serif; }
 .model-view.map-active > .survey-title,
 .model-view.map-active > .model-action-buttons,
 .model-view.map-active > #loading { visibility: hidden; }
+.model-view.map-active .potree_menu_toggle { display: none; }
 .map-sidebar {
   position: absolute;
   z-index: 5;
@@ -208,6 +209,7 @@ body { background: #0c1519; font-family: Arial, sans-serif; }
   .water-timeline { top: 139px; right: 7px; left: 7px; grid-template-columns: 32px 1fr 62px; }
   .map-quick-layers { left: 6px; right: 6px; overflow-x: auto; }
   .map-quick-layers button { white-space: nowrap; }
+  #map-view .ol-zoom { top: 52px; left: 6px; }
   .map-bottom-actions { right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); }
   #map-coordinates { left: 8px; bottom: 56px; max-width: calc(100% - 16px); font-size: 10px; }
   #map-view .ol-scale-line { left: 8px; bottom: 92px; }
