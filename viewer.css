@@ -172,7 +172,8 @@ body { background: #0c1519; font-family: Arial, sans-serif; }
   .survey-title { right: 10px; top: 8px; }
   .model-action-buttons { right: 8px; left: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); overflow-x: auto; }
   .model-action-buttons button, .model-action-buttons select { white-space: nowrap; padding: 7px 9px; }
-  .model-action-buttons span { display: none; }
+  .model-action-buttons button:not(#mode-2d) span { display: none; }
+  .model-action-buttons #mode-2d span { display: inline; }
   .map-sidebar {
     z-index: 18;
     top: 88px;
