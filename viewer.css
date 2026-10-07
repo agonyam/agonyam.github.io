@@ -10,7 +10,7 @@ body { background: #0c1519; font-family: Arial, sans-serif; }
 .model-view.map-active > .survey-title,
 .model-view.map-active > .model-action-buttons,
 .model-view.map-active > #loading { visibility: hidden; }
-.model-view.map-active .potree_menu_toggle { display: none; }
+body:has(.model-view.map-active) .potree_menu_toggle { display: none; }
 .map-sidebar {
   position: absolute;
   z-index: 5;
