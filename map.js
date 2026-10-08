@@ -36,6 +36,42 @@
     setMapToolsOpen(!mapTools.classList.contains('mobile-open'));
   });
 
+  const mapLoading = document.getElementById('map-loading');
+  const mapLoadingText = document.getElementById('map-loading-text');
+  const busyReasons = {};
+  let tileLoading = 0;
+  let tileLoadingTimer = 0;
+  function renderBusy() {
+    if (!mapLoading) return;
+    const keys = Object.keys(busyReasons);
+    const busy = keys.length > 0 || tileLoading > 0;
+    mapLoading.hidden = !busy;
+    if (busy) mapLoadingText.textContent = keys.length ? busyReasons[keys[keys.length - 1]] : 'Loading imagery…';
+  }
+  function setBusy(key, message) {
+    if (message) busyReasons[key] = message;
+    else delete busyReasons[key];
+    renderBusy();
+  }
+  function trackTileLayer(layer) {
+    const source = layer.getSource();
+    if (!source || !source.on) return;
+    source.on('tileloadstart', function () {
+      tileLoading += 1;
+      window.clearTimeout(tileLoadingTimer);
+      tileLoadingTimer = window.setTimeout(renderBusy, 250);
+    });
+    function tileDone() {
+      tileLoading = Math.max(0, tileLoading - 1);
+      if (tileLoading === 0) {
+        window.clearTimeout(tileLoadingTimer);
+        renderBusy();
+      }
+    }
+    source.on('tileloadend', tileDone);
+    source.on('tileloaderror', tileDone);
+  }
+
   function mapFitPadding() {
     if (window.innerWidth > 600) return [55, 335, 55, 55];
     return mapTools && mapTools.classList.contains('mobile-open') ? [92, 330, 72, 18] : [92, 18, 72, 18];
@@ -262,6 +298,7 @@
     view: new ol.View({ center: ol.extent.getCenter(surveyExtent), zoom: 19, minZoom: 14, maxZoom: 23 })
   });
   map.getView().fit(surveyExtent, map.getSize(), { padding: mapFitPadding(), maxZoom: 21 });
+  [layers.satellite, layers.osm, layers.orthophoto, layers['plant-health']].forEach(trackTileLayer);
 
   fetch(assetUrl('assets/shots.geojson')).then(function (response) {
     if (!response.ok) throw new Error('HTTP ' + response.status);
@@ -365,6 +402,7 @@
     }
     const token = ++contourRequestToken;
     contourStatus('Generating ' + interval + ' m contours…');
+    setBusy('contours', 'Generating contours…');
     ensureDtm().then(function (ready) {
       if (token !== contourRequestToken) return;
       if (!ready) throw new Error('Terrain data could not be loaded.');
@@ -377,6 +415,7 @@
         contourWorker = null;
         if (event.data.error || !event.data.levels) {
           contourStatus('Contour generation failed.');
+          setBusy('contours');
           console.error('Contours could not be generated.', event.data.error);
           return;
         }
@@ -385,11 +424,13 @@
         contourCacheOrder.push(key);
         while (contourCacheOrder.length > 3) delete contourCache[contourCacheOrder.shift()];
         contourStatus(features.lines.length + ' levels · ' + interval + ' m interval');
+        setBusy('contours');
       };
       contourWorker.onerror = function () {
         if (token !== contourRequestToken) return;
         contourWorker = null;
         contourStatus('Contour generation failed.');
+        setBusy('contours');
       };
       const payload = {
         elev: contourGrid.elev.slice().buffer,
@@ -403,6 +444,7 @@
     }).catch(function (error) {
       if (token !== contourRequestToken) return;
       contourStatus('Contours unavailable: ' + error.message);
+      setBusy('contours');
       console.error('Contours could not be generated.', error);
     });
   }
@@ -579,6 +621,7 @@
     elevationControls.hidden = false;
     document.getElementById('elevation-title').textContent = name === 'dtm' ? 'Terrain Model' : 'Surface Model';
     elevationStatus.textContent = 'Loading full-resolution elevation…';
+    setBusy('elevation', 'Loading elevation…');
       return fetch(assetUrl('assets/map/elevation.json')).then(function (response) { return response.json(); }).then(function (metadata) {
       elevationMetadata = metadata;
       updateRangeUi();
@@ -593,19 +636,25 @@
       }
       hillshadePixels = null;
       renderElevation();
-      if (elevationStyle.shading === 'none') return null;
+      if (elevationStyle.shading === 'none') {
+        setBusy('elevation');
+        return null;
+      }
       elevationStatus.textContent = 'Adding ' + elevationStyle.shading + ' relief…';
       return loadPixels(assetUrl('assets/map/' + name + '-hillshade-' + elevationStyle.shading + '.png')).then(function (shade) {
         if (token !== elevationLoadToken) return;
         hillshadePixels = shade;
         renderElevation();
+        setBusy('elevation');
         return true;
       }).catch(function () {
         if (token === elevationLoadToken) elevationStatus.textContent = 'Color elevation ready · relief unavailable';
+        if (token === elevationLoadToken) setBusy('elevation');
         return true;
       });
     }).catch(function () {
       if (token === elevationLoadToken) elevationStatus.textContent = 'Elevation layer could not be loaded.';
+      if (token === elevationLoadToken) setBusy('elevation');
       return false;
     });
   }
@@ -619,10 +668,14 @@
       return;
     }
     elevationStatus.textContent = 'Loading ' + elevationStyle.shading + ' relief…';
+    setBusy('elevation', 'Loading relief…');
     loadPixels(assetUrl('assets/map/' + elevationActive + '-hillshade-' + elevationStyle.shading + '.png')).then(function (pixels) {
       if (token !== elevationLoadToken) return;
       hillshadePixels = pixels;
       renderElevation();
+      setBusy('elevation');
+    }).catch(function () {
+      if (token === elevationLoadToken) setBusy('elevation');
     });
   }
 

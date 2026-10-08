@@ -94,6 +94,9 @@ body:has(.model-view.map-active) .potree_menu_toggle { display: none; }
 .map-quick-layers button, .map-bottom-actions button { border: 1px solid #819095; border-radius: 3px; background: rgba(65,88,94,.94); padding: 7px 10px; color: white; cursor: pointer; }
 .map-quick-layers button.active { background: #2e859f; }
 .map-tools-toggle { display: none; }
+.map-loading { position: absolute; z-index: 6; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,.45); border-radius: 20px; background: rgba(18,42,55,.92); padding: 6px 14px; color: #fff; font-size: 12px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+.map-loading[hidden] { display: none; }
+.map-loading .spinner { width: 14px; height: 14px; border-width: 2px; }
 .map-bottom-actions { position: absolute; z-index: 6; right: 14px; bottom: 14px; display: flex; gap: 6px; }
 .mode-switch { min-width: 72px; }
 .map-upload { position: relative; border: 1px solid #9dabad; border-radius: 3px; background: #e7ebec; padding: 7px 8px !important; color: #24363b; cursor: pointer; text-align: center; }
@@ -209,6 +212,7 @@ body:has(.model-view.map-active) .potree_menu_toggle { display: none; }
   .water-timeline { top: 139px; right: 7px; left: 7px; grid-template-columns: 32px 1fr 62px; }
   .map-quick-layers { left: 6px; right: 6px; overflow-x: auto; }
   .map-quick-layers button { white-space: nowrap; }
+  .map-loading { top: 52px; }
   #map-view .ol-zoom { top: 52px; left: 6px; }
   .map-bottom-actions { right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); }
   #map-coordinates { left: 8px; bottom: 56px; max-width: calc(100% - 16px); font-size: 10px; }

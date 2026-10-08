@@ -125,8 +125,7 @@
       texturedModel = gltf.scene;
       const center = texturedModel.CESIUM_RTC && texturedModel.CESIUM_RTC.center;
       if (center) {
-        texturedModel.translateX(center[0]);
-        texturedModel.translateY(center[1]);
+        texturedModel.position.set(center[0], center[1], center[2] || 0);
       }
       viewer.scene.scene.add(texturedModel);
       modelLoading = false;
@@ -142,9 +141,31 @@
     });
   }
 
+  function alignModelToPointCloud(object) {
+    if (!pointcloud || !object) return;
+    let pcCenter = null;
+    try {
+      const box = viewer.getBoundingBox([pointcloud]);
+      if (box && !box.isEmpty()) pcCenter = box.getCenter(new THREE.Vector3());
+    } catch (ignore) { pcCenter = null; }
+    if (!pcCenter) return;
+    const modelBox = new THREE.Box3().setFromObject(object);
+    if (modelBox.isEmpty()) return;
+    const modelCenter = modelBox.getCenter(new THREE.Vector3());
+    const dx = pcCenter.x - modelCenter.x;
+    const dy = pcCenter.y - modelCenter.y;
+    const dz = pcCenter.z - modelCenter.z;
+    if (Math.abs(dx) > 1000 || Math.abs(dy) > 1000) {
+      object.position.x += dx;
+      object.position.y += dy;
+      if (Math.abs(dz) > 100) object.position.z += dz;
+    }
+  }
+
   function toggleTexturedModel(event) {
     if (event.target.checked) {
       loadTexturedModel(function (object) {
+        alignModelToPointCloud(object);
         object.visible = true;
         setPointCloudVisible(false);
       });

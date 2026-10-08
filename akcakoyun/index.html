@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="../vendor/potree/libs/openlayers3/ol.css">
   <link rel="stylesheet" href="../vendor/potree/libs/spectrum/spectrum.css">
   <link rel="stylesheet" href="../vendor/potree/libs/jstree/themes/mixed/style.css">
-  <link rel="stylesheet" href="../viewer.css?v=20261007-maplayout">
+  <link rel="stylesheet" href="../viewer.css?v=20261007-loading">
 </head>
 <body>
   <main class="model-view">
@@ -28,6 +28,7 @@
         <button type="button" data-map-quick="dtm">▤ Terrain Model</button>
       </nav>
       <button id="map-tools-toggle" class="map-tools-toggle" type="button" aria-controls="map-tools" aria-expanded="false">☰ Tools</button>
+      <div id="map-loading" class="map-loading" hidden><span class="spinner"></span><span id="map-loading-text">Loading…</span></div>
       <aside id="map-tools" class="map-sidebar">
         <h2>Layers</h2>
         <label><input type="checkbox" data-map-layer="cameras"> Cameras</label>
@@ -221,7 +222,7 @@
       waterPlanStorageKey: 'halil-cevizlik-water-plan-v1'
     };
   </script>
-  <script src="../viewer.js"></script>
-  <script src="../map.js?v=20261005-live3"></script>
+  <script src="../viewer.js?v=20261007-model"></script>
+  <script src="../map.js?v=20261007-loading"></script>
 </body>
 </html>
