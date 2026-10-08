@@ -124,8 +124,12 @@
     loader.load(assetUrl('assets/textured_model.glb'), function (gltf) {
       texturedModel = gltf.scene;
       const center = texturedModel.CESIUM_RTC && texturedModel.CESIUM_RTC.center;
+      const configured = surveyConfig.modelOffset;
       if (center) {
         texturedModel.position.set(center[0], center[1], center[2] || 0);
+        texturedModel.userData.placed = true;
+      } else if (Array.isArray(configured) && isFinite(configured[0]) && isFinite(configured[1])) {
+        texturedModel.position.set(configured[0], configured[1], configured[2] || 0);
         texturedModel.userData.placed = true;
       }
       viewer.scene.scene.add(texturedModel);
