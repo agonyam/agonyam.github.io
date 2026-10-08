@@ -126,6 +126,7 @@
       const center = texturedModel.CESIUM_RTC && texturedModel.CESIUM_RTC.center;
       if (center) {
         texturedModel.position.set(center[0], center[1], center[2] || 0);
+        texturedModel.userData.placed = true;
       }
       viewer.scene.scene.add(texturedModel);
       modelLoading = false;
@@ -162,12 +163,64 @@
     }
   }
 
+  let cameraOffsetPromise = null;
+  function modelOffsetFromCameras() {
+    if (!cameraOffsetPromise) {
+      cameraOffsetPromise = fetch(assetUrl('assets/shots.geojson')).then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+      }).then(function (geojson) {
+        let sumX = 0;
+        let sumY = 0;
+        let count = 0;
+        (geojson.features || []).forEach(function (feature) {
+          const translation = feature.properties && feature.properties.translation;
+          if (translation && isFinite(translation[0]) && isFinite(translation[1])) {
+            sumX += translation[0];
+            sumY += translation[1];
+            count += 1;
+          }
+        });
+        if (!count) throw new Error('no camera translations');
+        return [Math.floor(sumX / count), Math.floor(sumY / count), 0];
+      }).catch(function () { return null; });
+    }
+    return cameraOffsetPromise;
+  }
+
+  function modelPlacedSanely(object) {
+    if (!pointcloud) return true;
+    try {
+      const pcBox = viewer.getBoundingBox([pointcloud]);
+      if (!pcBox || pcBox.isEmpty()) return true;
+      const modelBox = new THREE.Box3().setFromObject(object);
+      if (modelBox.isEmpty()) return true;
+      const delta = modelBox.getCenter(new THREE.Vector3()).sub(pcBox.getCenter(new THREE.Vector3()));
+      return Math.abs(delta.x) <= 1000 && Math.abs(delta.y) <= 1000;
+    } catch (ignore) { return true; }
+  }
+
+  function placeTexturedModel(object) {
+    function show() {
+      object.visible = true;
+      setPointCloudVisible(false);
+    }
+    if (object.userData.placed) {
+      if (!modelPlacedSanely(object)) alignModelToPointCloud(object);
+      return show();
+    }
+    object.userData.placed = true;
+    modelOffsetFromCameras().then(function (offset) {
+      if (offset) object.position.set(offset[0], offset[1], offset[2]);
+      if (!modelPlacedSanely(object)) alignModelToPointCloud(object);
+      show();
+    });
+  }
+
   function toggleTexturedModel(event) {
     if (event.target.checked) {
       loadTexturedModel(function (object) {
-        alignModelToPointCloud(object);
-        object.visible = true;
-        setPointCloudVisible(false);
+        placeTexturedModel(object);
       });
     } else if (texturedModel) {
       texturedModel.visible = false;
