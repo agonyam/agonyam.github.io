@@ -202,6 +202,12 @@
     style: new ol.style.Style({ image: new ol.style.Circle({ radius: 3, fill: new ol.style.Fill({ color: '#ffd331' }), stroke: new ol.style.Stroke({ color: '#1b2528', width: 1 }) }) })
   });
   let contourInterval = 1;
+  let contourReference = null;
+  let referencePickActive = false;
+  let contourColorMode = 'spectral';
+  let contourSmoothing = 2;
+  const contourLevelRange = { min: 0, max: 1 };
+  const rampLutCache = {};
   function isIndexLevel(elevation, interval) {
     const step = interval * 5;
     if (!(step > 0)) return false;
@@ -211,10 +217,12 @@
     visible: false,
     source: contoursSource,
     style: function (feature) {
-      const major = isIndexLevel(Number(feature.get('elevation')), contourInterval);
-      return [new ol.style.Style({
-        stroke: new ol.style.Stroke({ color: major ? '#a93226' : '#e09a1f', width: major ? 2 : 1 })
-      })];
+      const elevation = Number(feature.get('elevation'));
+      const major = isIndexLevel(elevation, contourInterval);
+      if (contourColorMode === 'classic') {
+        return [new ol.style.Style({ stroke: new ol.style.Stroke({ color: major ? '#a93226' : '#e09a1f', width: major ? 2 : 1 }) })];
+      }
+      return [new ol.style.Style({ stroke: new ol.style.Stroke({ color: contourColorAt(elevation), width: major ? 2.4 : 1.5 }) })];
     }
   });
   const contourLabelSource = new ol.source.Vector();
@@ -225,6 +233,21 @@
       return [new ol.style.Style({
         text: new ol.style.Text({ text: String(feature.get('elevation')), font: 'bold 13px Arial', fill: new ol.style.Fill({ color: '#141414' }), stroke: new ol.style.Stroke({ color: 'rgba(255, 255, 255, .95)', width: 3 }) })
       })];
+    }
+  });
+  const referenceSource = new ol.source.Vector();
+  layers.contourReference = new ol.layer.Vector({
+    visible: false,
+    source: referenceSource,
+    style: function () {
+      return [
+        new ol.style.Style({ image: new ol.style.Circle({ radius: 11, stroke: new ol.style.Stroke({ color: '#ffffff', width: 3 }) }) }),
+        new ol.style.Style({
+          zIndex: 1,
+          image: new ol.style.Circle({ radius: 9, fill: new ol.style.Fill({ color: 'rgba(194, 24, 91, .2)' }), stroke: new ol.style.Stroke({ color: '#c2185b', width: 2.5 }) }),
+          text: new ol.style.Text({ text: '0 m', offsetY: -19, font: 'bold 12px Arial', fill: new ol.style.Fill({ color: '#ffffff' }), stroke: new ol.style.Stroke({ color: '#8e0e3f', width: 4 }) })
+        })
+      ];
     }
   });
   const importedLayer = new ol.layer.Vector({
@@ -293,7 +316,7 @@
 
   const map = new ol.Map({
     target: 'map',
-    layers: [layers.satellite, layers.osm, layers.orthophoto, layers['plant-health'], elevationLayer, layers.contours, layers.contourLabels, layers.cameras, importedLayer, sketchLayer, waterZoneLayer, waterPipeLayer, waterSurfaceLayer, waterResultLayer, waterEntryLayer, locationLayer],
+    layers: [layers.satellite, layers.osm, layers.orthophoto, layers['plant-health'], elevationLayer, layers.contours, layers.contourLabels, layers.contourReference, layers.cameras, importedLayer, sketchLayer, waterZoneLayer, waterPipeLayer, waterSurfaceLayer, waterResultLayer, waterEntryLayer, locationLayer],
     controls: ol.control.defaults().extend([new ol.control.ScaleLine()]),
     view: new ol.View({ center: ol.extent.getCenter(surveyExtent), zoom: 19, minZoom: 14, maxZoom: 23 })
   });
@@ -318,6 +341,200 @@
     if (status) status.textContent = message;
   }
 
+  function resetContourCache() {
+    Object.keys(contourCache).forEach(function (key) { delete contourCache[key]; });
+    contourCacheOrder.length = 0;
+  }
+
+  function contourLevelStatus(levelCount) {
+    let text = levelCount + ' levels · ' + contourInterval + ' m interval';
+    if (contourReference != null) text += ' · 0 m = ' + contourReference.toFixed(2) + ' m';
+    return text;
+  }
+
+  function cancelReferencePick() {
+    if (!referencePickActive) return;
+    referencePickActive = false;
+    const button = document.getElementById('contour-zero');
+    if (button) button.classList.remove('active');
+    map.getTargetElement().style.cursor = '';
+  }
+
+  function setReferencePick(active) {
+    if (active) {
+      stopWaterTools();
+      stopDrawing();
+    }
+    referencePickActive = active;
+    const button = document.getElementById('contour-zero');
+    if (button) button.classList.toggle('active', active);
+    map.getTargetElement().style.cursor = active ? 'crosshair' : '';
+    if (active) contourStatus('Click the map to set the 0 m reference…');
+  }
+
+  function pickContourReference(coordinate) {
+    cancelReferencePick();
+    contourStatus('Reading elevation…');
+    ensureDtm().then(function (ready) {
+      if (!ready) { contourStatus('Reference unavailable: terrain data could not be loaded.'); return; }
+      const pixel = coordinateToElevationPixel(coordinate);
+      const value = pixel ? elevationAtPixel(pixel[0], pixel[1]) : null;
+      if (value == null) { contourStatus('No terrain data at that point; try another spot.'); return; }
+      contourReference = value;
+      referenceSource.clear();
+      referenceSource.addFeature(new ol.Feature(new ol.geom.Point(coordinate)));
+      layers.contourReference.setVisible(true);
+      const checkbox = document.querySelector('[data-map-layer="contours"]');
+      if (checkbox) checkbox.checked = true;
+      layers.contours.setVisible(true);
+      layers.contourLabels.setVisible(true);
+      setContourControlsVisible(true);
+      const resetButton = document.getElementById('contour-zero-reset');
+      if (resetButton) resetButton.hidden = false;
+      resetContourCache();
+      requestContours();
+    });
+  }
+
+  function clearContourReference() {
+    contourReference = null;
+    referenceSource.clear();
+    layers.contourReference.setVisible(false);
+    const resetButton = document.getElementById('contour-zero-reset');
+    if (resetButton) resetButton.hidden = true;
+    resetContourCache();
+    if (layers.contours.getVisible()) requestContours();
+    else contourStatus('Reference cleared.');
+  }
+
+  function rampLut(name) {
+    if (!rampLutCache[name]) rampLutCache[name] = colorLut(name);
+    return rampLutCache[name];
+  }
+
+  function rampRgb(name, t) {
+    const lut = rampLut(name);
+    const index = Math.max(0, Math.min(255, Math.round(t * 255))) * 3;
+    return [lut[index], lut[index + 1], lut[index + 2]];
+  }
+
+  function rampColor(name, t) {
+    const rgb = rampRgb(name, t);
+    return 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')';
+  }
+
+  function contourColorAt(elevation) {
+    const min = contourLevelRange.min;
+    const max = contourLevelRange.max;
+    let t = max > min ? (elevation - min) / (max - min) : 0.5;
+    t = Math.max(0, Math.min(1, t));
+    return rampColor(contourColorMode, t);
+  }
+
+  function formatElevation(value) {
+    return String(Math.round(value * 100) / 100);
+  }
+
+  const contourOverlay = { ready: false };
+  function setContourControlsVisible(visible) {
+    const controls = document.getElementById('contour-controls');
+    if (controls) controls.hidden = !visible;
+  }
+  function ensureContourOverlays() {
+    if (contourOverlay.ready) return;
+    const title = document.createElement('div');
+    title.className = 'map-contour-title';
+    title.hidden = true;
+    const titleName = document.createElement('strong');
+    const titleNote = document.createElement('small');
+    title.appendChild(titleName);
+    title.appendChild(titleNote);
+    mapViewElement.appendChild(title);
+
+    const legend = document.createElement('div');
+    legend.className = 'map-contour-legend';
+    legend.hidden = true;
+    legend.innerHTML = '<h3>Contour elevation</h3><div class="ramp-wrap"><div class="ramp"></div><div class="ticks"></div></div><div class="note"></div>';
+    mapViewElement.appendChild(legend);
+
+    const north = document.createElement('div');
+    north.className = 'map-north-arrow';
+    north.setAttribute('aria-hidden', 'true');
+    north.innerHTML = '<span>N</span><i></i>';
+    mapViewElement.appendChild(north);
+
+    contourOverlay.ready = true;
+    contourOverlay.title = title;
+    contourOverlay.titleName = titleName;
+    contourOverlay.titleNote = titleNote;
+    contourOverlay.legend = legend;
+    contourOverlay.ramp = legend.querySelector('.ramp');
+    contourOverlay.ticks = legend.querySelector('.ticks');
+    contourOverlay.note = legend.querySelector('.note');
+  }
+
+  function surveyName() {
+    const element = document.querySelector('.survey-title span');
+    const name = element ? element.textContent.trim() : '';
+    return name || document.title.split('·')[0].trim() || 'Survey';
+  }
+
+  function referenceNote() {
+    return contourReference != null ? 'Reference: ' + contourReference.toFixed(2) + ' m = 0 m' : '';
+  }
+
+  function rampGradient(name) {
+    const stops = [];
+    for (let i = 0; i <= 10; i += 1) {
+      const t = i / 10;
+      stops.push(rampColor(name, t) + ' ' + Math.round(t * 100) + '%');
+    }
+    return 'linear-gradient(to top, ' + stops.join(', ') + ')';
+  }
+
+  function updateContourOverlays() {
+    ensureContourOverlays();
+    const visible = layers.contours.getVisible() && contoursSource.getFeatures().length > 0;
+    contourOverlay.title.hidden = !visible;
+    contourOverlay.legend.hidden = !visible;
+    if (!visible) return;
+    const intervalText = contourInterval + ' m interval';
+    contourOverlay.titleName.textContent = surveyName() + ' — Contour Lines';
+    contourOverlay.titleNote.textContent = intervalText + (referenceNote() ? ' · ' + referenceNote() : '');
+    const note = intervalText + (referenceNote() ? ' · ' + referenceNote() : '');
+    if (contourColorMode === 'classic') {
+      contourOverlay.ramp.hidden = true;
+      contourOverlay.ticks.hidden = true;
+      contourOverlay.note.textContent = note + ' · thick line = every 5th';
+      return;
+    }
+    contourOverlay.ramp.hidden = false;
+    contourOverlay.ticks.hidden = false;
+    contourOverlay.ramp.style.background = rampGradient(contourColorMode);
+    contourOverlay.note.textContent = note;
+    const min = contourLevelRange.min;
+    const max = contourLevelRange.max;
+    const step = contourInterval * 5;
+    const ticks = [];
+    if (max > min && step > 0) {
+      const first = Math.ceil((min - 1e-6) / step) * step;
+      for (let value = first; value <= max + 1e-6; value += step) ticks.push(Math.round(value * 1000) / 1000);
+      if (ticks.length < 2) ticks.length = 0;
+    }
+    if (!ticks.length) {
+      ticks.push(min);
+      if (max > min) ticks.push(max);
+    }
+    contourOverlay.ticks.innerHTML = '';
+    ticks.forEach(function (value) {
+      const t = max > min ? (value - min) / (max - min) : 0;
+      const span = document.createElement('span');
+      span.textContent = formatElevation(value);
+      span.style.bottom = (t * 100) + '%';
+      contourOverlay.ticks.appendChild(span);
+    });
+  }
+
   function buildContourGrid() {
     const src = hydrologyPixels.pixels;
     const sourceWidth = hydrologyPixels.width;
@@ -328,23 +545,76 @@
     const height = Math.ceil(sourceHeight / step);
     const elev = new Float32Array(width * height);
     const valid = new Uint8Array(width * height);
-    for (let y = 0; y < height; y += 1) {
-      const sourceY = Math.min(sourceHeight - 1, y * step);
-      for (let x = 0; x < width; x += 1) {
-        const sourceX = Math.min(sourceWidth - 1, x * step);
-        const pixel = (sourceY * sourceWidth + sourceX) * 4;
-        const output = y * width + x;
-        if (!src[pixel + 3]) { elev[output] = NaN; continue; }
-        valid[output] = 1;
-        elev[output] = meta.offset + (src[pixel] * 256 + src[pixel + 1]) * meta.scale;
+    const sum = new Float32Array(width * height);
+    const count = new Uint32Array(width * height);
+    for (let sourceY = 0; sourceY < sourceHeight; sourceY += 1) {
+      const outputY = Math.min(height - 1, (sourceY / step) | 0);
+      const rowBase = outputY * width;
+      const rowOffset = sourceY * sourceWidth;
+      for (let sourceX = 0; sourceX < sourceWidth; sourceX += 1) {
+        const pixel = (rowOffset + sourceX) * 4;
+        if (!src[pixel + 3]) continue;
+        const output = rowBase + Math.min(width - 1, (sourceX / step) | 0);
+        sum[output] += meta.offset + (src[pixel] * 256 + src[pixel + 1]) * meta.scale;
+        count[output] += 1;
       }
     }
+    for (let i = 0; i < elev.length; i += 1) {
+      if (count[i]) { elev[i] = sum[i] / count[i]; valid[i] = 1; }
+      else elev[i] = NaN;
+    }
+    smoothContourGrid(elev, valid, width, height, contourSmoothing);
     return { width: width, height: height, elev: elev, valid: valid };
+  }
+
+  function smoothContourGrid(elev, valid, width, height, radius) {
+    const r = Math.max(0, Math.round(radius));
+    if (!r) return;
+    const horizontal = new Float32Array(width * height);
+    for (let y = 0; y < height; y += 1) {
+      const row = y * width;
+      for (let x = 0; x < width; x += 1) {
+        const output = row + x;
+        if (!valid[output]) continue;
+        let total = 0;
+        let samples = 0;
+        const from = Math.max(0, x - r);
+        const to = Math.min(width - 1, x + r);
+        for (let sx = from; sx <= to; sx += 1) {
+          const index = row + sx;
+          if (!valid[index]) continue;
+          total += elev[index];
+          samples += 1;
+        }
+        if (samples) horizontal[output] = total / samples;
+      }
+    }
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const output = y * width + x;
+        if (!valid[output]) continue;
+        let total = 0;
+        let samples = 0;
+        const from = Math.max(0, y - r);
+        const to = Math.min(height - 1, y + r);
+        for (let sy = from; sy <= to; sy += 1) {
+          const index = sy * width + x;
+          if (!valid[index]) continue;
+          total += horizontal[index];
+          samples += 1;
+        }
+        if (samples) elev[output] = total / samples;
+      }
+    }
   }
 
   function showContourLevels(levels, interval) {
     contoursSource.clear();
     contourLabelSource.clear();
+    if (levels.length) {
+      contourLevelRange.min = levels[0].e;
+      contourLevelRange.max = levels[levels.length - 1].e;
+    }
     const lineFeatures = [];
     const labelFeatures = [];
     const hasIndex = levels.some(function (level) { return isIndexLevel(level.e, interval); });
@@ -381,21 +651,27 @@
     });
     contoursSource.addFeatures(lineFeatures);
     contourLabelSource.addFeatures(labelFeatures);
+    updateContourOverlays();
     return { lines: lineFeatures, labels: labelFeatures };
   }
 
   function showCachedContours(key, interval) {
     contoursSource.clear();
     contourLabelSource.clear();
+    if (contourCache[key].range) {
+      contourLevelRange.min = contourCache[key].range.min;
+      contourLevelRange.max = contourCache[key].range.max;
+    }
     contoursSource.addFeatures(contourCache[key].lines);
     contourLabelSource.addFeatures(contourCache[key].labels);
-    contourStatus(contourCache[key].lines.length + ' levels · ' + interval + ' m interval');
+    contourStatus(contourLevelStatus(contourCache[key].lines.length));
+    updateContourOverlays();
   }
 
   function requestContours() {
     if (!layers.contours.getVisible()) return;
     const interval = contourInterval;
-    const key = String(interval);
+    const key = String(interval) + '@' + (contourReference == null ? 'abs' : contourReference.toFixed(3));
     if (contourCache[key]) {
       showCachedContours(key, interval);
       return;
@@ -420,10 +696,11 @@
           return;
         }
         const features = showContourLevels(event.data.levels, interval);
+        features.range = { min: contourLevelRange.min, max: contourLevelRange.max };
         contourCache[key] = features;
         contourCacheOrder.push(key);
         while (contourCacheOrder.length > 3) delete contourCache[contourCacheOrder.shift()];
-        contourStatus(features.lines.length + ' levels · ' + interval + ' m interval');
+        contourStatus(contourLevelStatus(features.lines.length));
         setBusy('contours');
       };
       contourWorker.onerror = function () {
@@ -432,8 +709,17 @@
         contourStatus('Contour generation failed.');
         setBusy('contours');
       };
+      const baseElev = contourGrid.elev;
+      const gridElev = new Float32Array(baseElev.length);
+      if (contourReference == null) gridElev.set(baseElev);
+      else {
+        for (let i = 0; i < baseElev.length; i += 1) {
+          const value = baseElev[i];
+          gridElev[i] = value === value ? value - contourReference : value;
+        }
+      }
       const payload = {
-        elev: contourGrid.elev.slice().buffer,
+        elev: gridElev.buffer,
         valid: contourGrid.valid.slice().buffer,
         width: contourGrid.width,
         height: contourGrid.height,
@@ -450,6 +736,7 @@
   }
 
   const palettes = {
+    spectral: [[0, 214, 39, 40], [.14, 255, 127, 14], [.28, 255, 187, 0], [.42, 255, 227, 0], [.55, 173, 219, 50], [.68, 66, 196, 92], [.8, 26, 190, 196], [.9, 31, 119, 220], [1, 191, 32, 178]],
     viridis: [[0, 68, 1, 84], [.25, 59, 82, 139], [.5, 33, 145, 140], [.75, 94, 201, 98], [1, 253, 231, 37]],
     jet: [[0, 0, 0, 128], [.2, 0, 80, 255], [.4, 0, 220, 220], [.6, 220, 255, 30], [.8, 255, 100, 0], [1, 128, 0, 0]],
     terrain: [[0, 52, 107, 130], [.25, 78, 153, 115], [.5, 176, 176, 106], [.75, 166, 126, 86], [1, 255, 255, 255]],
@@ -748,6 +1035,7 @@
   }
 
   function stopDrawing() {
+    cancelReferencePick();
     if (draw) map.removeInteraction(draw);
     draw = null;
     document.querySelectorAll('[data-map-tool]').forEach(function (button) { button.classList.remove('active'); });
@@ -800,6 +1088,7 @@
   }
 
   function stopWaterTools() {
+    cancelReferencePick();
     waterTool = null;
     if (waterDraw) map.removeInteraction(waterDraw);
     if (waterSnap) map.removeInteraction(waterSnap);
@@ -2036,6 +2325,10 @@
     document.getElementById('water-status').textContent = 'Plan cleared. Add entry points and pipe routes, or choose rainfall.';
   });
   map.on('singleclick', function (event) {
+    if (!referencePickActive) return;
+    pickContourReference(event.coordinate);
+  });
+  map.on('singleclick', function (event) {
     if (waterTool === 'erase') {
       const pipe = map.forEachFeatureAtPixel(event.pixel, function (feature, layer) { return layer === waterPipeLayer ? feature : null; }, { hitTolerance: 8 });
       if (!pipe) { document.getElementById('water-status').textContent = 'No pipe selected. Click directly on a pipe segment.'; return; }
@@ -2093,7 +2386,7 @@
     if (contoursCheckbox.nextSibling && contoursCheckbox.nextSibling.nodeType === 3) contoursCheckbox.nextSibling.textContent = ' Contours';
     const intervalLabel = document.createElement('label');
     intervalLabel.className = 'contour-interval';
-    intervalLabel.textContent = 'Interval ';
+    intervalLabel.textContent = 'Interval (m) ';
     const intervalInput = document.createElement('input');
     intervalInput.id = 'contour-interval';
     intervalInput.type = 'number';
@@ -2103,11 +2396,75 @@
     intervalInput.value = '1';
     intervalInput.setAttribute('aria-label', 'Contour interval in meters');
     intervalLabel.appendChild(intervalInput);
-    contoursCheckbox.parentElement.after(intervalLabel);
+    const controls = document.createElement('div');
+    controls.id = 'contour-controls';
+    controls.className = 'contour-controls';
+    controls.hidden = true;
+    contoursCheckbox.parentElement.after(controls);
+    controls.appendChild(intervalLabel);
+    const colorLabel = document.createElement('label');
+    colorLabel.className = 'contour-color';
+    colorLabel.textContent = 'Colour ';
+    const colorSelect = document.createElement('select');
+    colorSelect.id = 'contour-color';
+    colorSelect.setAttribute('aria-label', 'Contour colour scheme');
+    [['spectral', 'Spectral'], ['terrain', 'Terrain'], ['earth', 'Earth'], ['viridis', 'Viridis'], ['jet', 'Jet'], ['classic', 'Index / minor']].forEach(function (option) {
+      const element = document.createElement('option');
+      element.value = option[0];
+      element.textContent = option[1];
+      colorSelect.appendChild(element);
+    });
+    colorSelect.value = contourColorMode;
+    colorLabel.appendChild(colorSelect);
+    controls.appendChild(colorLabel);
+    const smoothLabel = document.createElement('label');
+    smoothLabel.className = 'contour-color';
+    smoothLabel.textContent = 'Smooth ';
+    const smoothSelect = document.createElement('select');
+    smoothSelect.id = 'contour-smooth';
+    smoothSelect.setAttribute('aria-label', 'Contour terrain smoothing');
+    [['0', 'Off'], ['1', 'Low'], ['2', 'Medium'], ['4', 'High']].forEach(function (option) {
+      const element = document.createElement('option');
+      element.value = option[0];
+      element.textContent = option[1];
+      smoothSelect.appendChild(element);
+    });
+    smoothSelect.value = String(contourSmoothing);
+    smoothLabel.appendChild(smoothSelect);
+    controls.appendChild(smoothLabel);
     const contourStatusLine = document.createElement('div');
     contourStatusLine.id = 'contour-status';
     contourStatusLine.className = 'elevation-status';
-    intervalLabel.after(contourStatusLine);
+    controls.appendChild(contourStatusLine);
+    const referenceGrid = document.createElement('div');
+    referenceGrid.className = 'map-tool-grid contour-reference';
+    const zeroButton = document.createElement('button');
+    zeroButton.type = 'button';
+    zeroButton.id = 'contour-zero';
+    zeroButton.title = 'Click the map to set that point to 0 m elevation';
+    zeroButton.textContent = '⌖ Set 0 m';
+    const resetReferenceButton = document.createElement('button');
+    resetReferenceButton.type = 'button';
+    resetReferenceButton.id = 'contour-zero-reset';
+    resetReferenceButton.title = 'Use absolute elevations again';
+    resetReferenceButton.textContent = '× Reset 0 m';
+    resetReferenceButton.hidden = true;
+    referenceGrid.appendChild(zeroButton);
+    referenceGrid.appendChild(resetReferenceButton);
+    controls.appendChild(referenceGrid);
+    zeroButton.addEventListener('click', function () { setReferencePick(!referencePickActive); });
+    resetReferenceButton.addEventListener('click', function () { clearContourReference(); });
+    colorSelect.addEventListener('change', function () {
+      contourColorMode = colorSelect.value;
+      layers.contours.changed();
+      updateContourOverlays();
+    });
+    smoothSelect.addEventListener('change', function () {
+      contourSmoothing = Number(smoothSelect.value) || 0;
+      contourGrid = null;
+      resetContourCache();
+      if (layers.contours.getVisible()) requestContours();
+    });
     let contourDebounce = null;
     intervalInput.addEventListener('change', function () {
       let value = Number(intervalInput.value);
@@ -2119,9 +2476,12 @@
       contourDebounce = window.setTimeout(requestContours, 400);
     });
     contoursCheckbox.addEventListener('change', function () {
+      setContourControlsVisible(contoursCheckbox.checked);
       layers.contourLabels.setVisible(contoursCheckbox.checked);
       if (contoursCheckbox.checked) requestContours();
+      else updateContourOverlays();
     });
+    ensureContourOverlays();
   }
   document.querySelectorAll('[data-map-quick]').forEach(function (button) {
     button.addEventListener('click', function () {

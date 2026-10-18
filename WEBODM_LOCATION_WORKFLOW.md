@@ -54,6 +54,48 @@ Contours are generated live in the browser from the DTM at any 0.1–10 m interv
 
 Do not publish raw source photographs, raw GeoTIFFs, the original full LAZ, reports, caches, or WebODM credentials. The EPT hierarchy and tiled/derived map products are the deployable outputs.
 
+## Asset generation
+
+`tools/gen.py` is the single generalized pipeline (GDAL + numpy + Pillow, runs inside the
+`node-odx-1` container where those are installed). It takes any completed WebODM task and
+produces the whole `map/` tree plus `meta.json` for `SURVEY_CONFIG`:
+
+```text
+in_dir:  dtm.tif, dsm.tif, odm_orthophoto.tif   (copied from the task outputs)
+out_dir: dtm/dsm-elevation.png (R*256+G packed, 0.01 scale)
+         dtm/dsm-hillshade-{normal,extruded}.png (gdaldem, z1/z2, az315/alt45)
+         orthophoto/{z}/{x}/{y}.png + plant-health/{z}/{x}/{y}.png (XYZ z15-22,
+           bilinear; VARI = (G-R)/(G+R-B) with the house brown-green ramp)
+         elevation.json, meta.json (extent4326, gsdMeters, areaSquareMeters)
+```
+
+Terrain rasters are bilinear-warped so the longest side is `MAXEDGE` (default 3000 px, override
+with the environment for high-relief sites; Aşağıçavuş used 6000). Tiles skip fully
+transparent cells. `contours-wgs84.geojson` is also emitted but never uploaded.
+
+```sh
+# 1. stage task outputs (node container paths)
+docker exec node-odx-1 mkdir -p /var/www/data/gen/<slug>/in /var/www/data/gen/<slug>/out
+docker exec node-odx-1 bash -c "cp /var/www/data/<node-uuid>/odm_dem/dtm.tif \
+  /var/www/data/<node-uuid>/odm_dem/dsm.tif /var/www/data/gen/<slug>/in/ && \
+  cp /var/www/data/<node-uuid>/odm_orthophoto/odm_orthophoto.tif /var/www/data/gen/<slug>/in/"
+# 2. run (MAXEDGE=3000 default; export MAXEDGE=6000 only for hi-res exceptions)
+docker exec node-odx-1 bash -c "cd /var/www/data/gen && python3 gen.py <slug> \
+  /var/www/data/gen/<slug>/in /var/www/data/gen/<slug>/out"
+# 3. copy out/ back to the host staging dir, dropping contours-*.geojson, *_small.tif, *.aux.xml
+```
+
+Assemble the rest of the tree on the host from the WebODM task media directory:
+
+- `entwine_pointcloud/` ← `ept.json`, `ept-build.json`, `ept-data/`, `ept-hierarchy/`
+- `shots.geojson` ← `odm_report/shots.geojson`
+- `textured_model.glb` ← `odm_texturing/odm_textured_model_geo.glb`, Draco-compressed:
+  `gltf-transform optimize in.glb out.glb --compress draco --texture-compress webp`
+  (expect ~5–10× smaller; verify the `glTF` magic bytes afterwards).
+
+`meta.json` carries the measured `extent4326`, `areaSquareMeters`, and `gsdMeters` for the
+`SURVEY_CONFIG` block; `elevation.json` carries the measured DTM/DSM display ranges.
+
 ## R2 upload
 
 R2 is the canonical source for new survey binaries.
@@ -66,6 +108,22 @@ R2 is the canonical source for new survey binaries.
 6. Do not commit `.env.r2.local` or credentials.
 
 Use the repository's established authenticated R2/AWS-compatible upload method. If the environment variable contract or bucket name is unavailable, stop and ask the maintainer instead of guessing or exposing the environment file.
+
+Upload per file class so each gets its content type (all immutable, one year):
+
+```sh
+# source .env.r2.local first (never print it); <R2> = configured endpoint, <B> = bucket
+aws s3 sync <staging>/map <B>/<slug>/assets/map --endpoint-url <R2> \
+  --content-type image/png --cache-control 'public, max-age=31536000, immutable' --only-show-errors --exclude '*.json'
+aws s3 cp <staging>/map/elevation.json <B>/<slug>/assets/map/elevation.json \
+  --endpoint-url <R2> --content-type application/json --cache-control 'public, max-age=31536000, immutable' --only-show-errors
+aws s3 sync <staging> <B>/<slug>/assets --endpoint-url <R2> \
+  --exclude '*' --include '*.laz' --content-type application/octet-stream \
+  --cache-control 'public, max-age=31536000, immutable' --only-show-errors
+aws s3 cp <staging>/textured_model.glb <B>/<slug>/assets/textured_model.glb \
+  --endpoint-url <R2> --content-type model/gltf-binary --cache-control 'public, max-age=31536000, immutable' --only-show-errors
+# ept.json / ept-build.json / ept-hierarchy as application/json, shots.geojson as application/geo+json, same flags
+```
 
 Verify at least these URLs before updating the site:
 
