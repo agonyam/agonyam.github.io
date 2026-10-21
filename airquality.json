@@ -1,11 +1,11 @@
 {
   "locationId": 162192,
   "locationName": "Akçakoyun",
-  "pm02": 16.0,
-  "rco2": 481,
-  "atmp": 11.1,
+  "pm02": 10.0,
+  "rco2": 477,
+  "atmp": 9.5,
   "rhum": 76,
-  "tvoc": 145.9,
-  "timestamp": "2026-10-20T23:41:16.000Z",
-  "fetchedAt": "2026-10-20T23:41:46Z"
+  "tvoc": 126.8,
+  "timestamp": "2026-10-21T04:02:48.000Z",
+  "fetchedAt": "2026-10-21T04:03:07Z"
 }
